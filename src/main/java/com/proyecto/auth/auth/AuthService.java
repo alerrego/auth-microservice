@@ -1,5 +1,6 @@
 package com.proyecto.auth.auth;
 
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -27,7 +28,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
 
-    public AuthResponse registro(RegistroRequest request){
+    public AuthResponse registro(@Valid RegistroRequest request){
         if(userRepository.findByUsername(request.getUsername()).isPresent()){
             throw new ResponseStatusException(
                 HttpStatus.CONFLICT,
@@ -58,7 +59,7 @@ public class AuthService {
             .build();
     }
 
-    public AuthResponse login(LoginRequest request){
+    public AuthResponse login(@Valid LoginRequest request){
         try {
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
         } catch (BadCredentialsException e) {
@@ -67,7 +68,7 @@ public class AuthService {
             );
         }
         User user = userRepository.findByUsername(request.getUsername())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"El usuario no existe."));
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Usuario o contraseña incorrectos."));
         return AuthResponse.builder()
             .token(jwtService.getToken(user))
             .build();
