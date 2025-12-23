@@ -1,6 +1,5 @@
 package com.proyecto.auth.auth;
 
-import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -17,6 +16,7 @@ import com.proyecto.auth.user.Role;
 import com.proyecto.auth.user.User;
 import com.proyecto.auth.user.UserRepository;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @Service
