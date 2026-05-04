@@ -14,10 +14,4 @@ spring.jpa.hibernate.ddl-auto=update
 #----ERROR
 spring.web.error.include-message=always
 
-#----JWT
-jwt.expiration.ms=ACA PARA SETEAR EL TIEMPO DE EXPIRACION EN MILISEGUNDOS
-jwt.private.key= ACA LA CLAVE PRIVADA PARA FIRMAR EL TOKEN
-jwt.public.key= ACA LA CLAVE PUBLICA PARA VERIFICAR EL TOKEN
-
-
 

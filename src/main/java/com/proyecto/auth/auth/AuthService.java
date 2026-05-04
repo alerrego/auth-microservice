@@ -1,76 +1,97 @@
 package com.proyecto.auth.auth;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import java.util.Collections;
+import java.util.List;
+
+import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.KeycloakBuilder;
+import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.RoleRepresentation;
+import jakarta.ws.rs.core.Response;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClient;
 
-import com.proyecto.auth.auth.dto.AuthResponse;
-import com.proyecto.auth.auth.dto.LoginRequest;
-import com.proyecto.auth.auth.dto.RegistroRequest;
-import com.proyecto.auth.jwt.JwtService;
-import com.proyecto.auth.user.Role;
-import com.proyecto.auth.user.User;
-import com.proyecto.auth.user.UserRepository;
-
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository userRepository;
-    private final JwtService jwtService;
-    private final PasswordEncoder passwordEncoder;
-    private final AuthenticationManager authenticationManager;
+    private final Keycloak keycloakAdmin;
+    private final RestClient restClient;
 
-    public AuthResponse registro(@Valid RegistroRequest request){
-        if(userRepository.findByUsername(request.getUsername()).isPresent()){
-            throw new ResponseStatusException(
-                HttpStatus.CONFLICT,
-                "El nombre de usuario ya esta registrado."
-            );
-        }
-        if(userRepository.findByEmail(request.getEmail()).isPresent()){
-            throw new ResponseStatusException(
-                HttpStatus.CONFLICT,
-                "El email ya esta registrado."
-            );
-        }
-        
-        User user = User.builder()
-            .username(request.getUsername())
-            .email(request.getEmail())
-            .password(passwordEncoder.encode(request.getPassword()))
-            .nombre(request.getNombre())
-            .apellido(request.getApellido())
-            .pais(request.getPais())
-            .role(Role.USER)
-            .build();
+    @Value("${keycloak.server-url}")
+    private String serverUrl;
 
-        userRepository.save(user);
+    @Value("${keycloak.realm}")
+    private String realm;
 
-        return AuthResponse.builder()
-            .token(jwtService.getToken(user))
-            .build();
+    @Value("${keycloak.client-id}")
+    private String clientId;
+
+    @Value("${keycloak.client-secret}")
+    private String clientSecret;
+
+    public String login(String username, String password) {
+        String tokenEndpoint = serverUrl + "/realms/" + realm + "/protocol/openid-connect/token";
+
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        formData.add("client_id", clientId);
+        formData.add("grant_type", "password");
+        formData.add("username", username);
+        formData.add("password", password);
+        formData.add("client_secret", clientSecret);
+
+        // Hacemos el POST directo a Keycloak y devolvemos el JSON con el token
+        return restClient.post()
+                .uri(tokenEndpoint)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(formData)
+                .retrieve()
+                .body(String.class);
     }
 
-    public AuthResponse login(@Valid LoginRequest request){
-        try {
-            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
-        } catch (BadCredentialsException e) {
-            throw new ResponseStatusException(
-                HttpStatus.UNAUTHORIZED,"Usuario o contraseña incorrectos."
-            );
+    public boolean registrarUsuario(String username, String email, String password) {
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setEnabled(true);
+        user.setEmailVerified(false); // Para que tenga que validarlo
+
+        CredentialRepresentation credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setValue(password);
+        credential.setTemporary(false);
+
+        user.setCredentials(Collections.singletonList(credential));
+
+        // Le pedimos a Keycloak que cree el usuario
+        try (Response response = keycloakAdmin.realm(realm).users().create(user)) {
+            if (response.getStatus() == 201) {
+                // OPCIONAL: Mandar el mail de verificación automáticamente
+                String userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
+                keycloakAdmin.realm(realm).users().get(userId).executeActionsEmail(List.of("VERIFY_EMAIL"));
+                return true;
+            }
+            return false;
         }
-        User user = userRepository.findByUsername(request.getUsername())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Usuario o contraseña incorrectos."));
-        return AuthResponse.builder()
-            .token(jwtService.getToken(user))
-            .build();
+    }
+
+    public boolean recuperarPassword(String email) {
+        // Buscamos si existe el usuario por su email
+        List<UserRepresentation> users = keycloakAdmin.realm(realm).users().searchByEmail(email, true);
+        
+        if (!users.isEmpty()) {
+            String userId = users.get(0).getId();
+            // Le decimos a Keycloak que le mande el mail de reseteo
+            keycloakAdmin.realm(realm).users().get(userId).executeActionsEmail(List.of("UPDATE_PASSWORD"));
+            return true;
+        }
+        return false;
     }
 }
